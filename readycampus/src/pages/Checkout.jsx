@@ -6,6 +6,7 @@ import { CartSummary } from '../components/cart/CartSummary.jsx'
 import { money } from '../utils/format.js'
 
 const PAYMENT_METHODS = ['Cash on Delivery', 'E-wallet', 'Bank account']
+const cartItemKey = (item) => `${item.id}::${item.color || ''}`
 const readAddresses = () => {
   try { return JSON.parse(localStorage.getItem('readycampus.addresses')) || [] } catch { return [] }
 }
@@ -30,8 +31,8 @@ export function Checkout() {
   })
   const items = useMemo(() => cart.map((entry) => {
     const product = products.find((item) => String(item.id) === String(entry.id))
-    return product ? { ...product, quantity: entry.quantity } : null
-  }).filter(Boolean).filter((item) => selectedCartIds === null || selectedCartIds.some((id) => String(id) === String(item.id))), [cart, products, selectedCartIds])
+    return product ? { ...product, quantity: entry.quantity, color: entry.color || null } : null
+  }).filter(Boolean).filter((item) => selectedCartIds === null || selectedCartIds.some((id) => String(id) === cartItemKey(item) || String(id) === String(item.id))), [cart, products, selectedCartIds])
   const change = (event) => setForm((value) => ({ ...value, [event.target.name]: event.target.value }))
   const close = () => navigate('/cart')
 
@@ -69,7 +70,7 @@ export function Checkout() {
         delivery: form.delivery,
         payment: form.payment,
         notes: form.notes,
-      }, selectedCartIds === null ? null : items.map((item) => item.id))
+      }, selectedCartIds === null ? null : items.map(cartItemKey))
       notify('Your demo order was created.')
       navigate(`/order-confirmation/${order.reference}`)
     } catch (cause) {
@@ -107,7 +108,7 @@ export function Checkout() {
             </div>
           </fieldset>}
           {step === 2 && <section className="checkout-wizard-panel"><p className="checkout-wizard-help">Choose how you would like to pay for this demo order.</p><fieldset className="checkout-payment checkout-payment-choice"><legend>Select payment method</legend><div className="payment-options payment-options-vertical">{PAYMENT_METHODS.map((method) => <label className={form.payment === method ? 'selected' : ''} key={method}><input type="radio" name="payment" value={method} checked={form.payment === method} onChange={change} /><span><strong>{method === 'E-wallet' ? 'Pay with E-wallet' : method}</strong><small>{method === 'Cash on Delivery' ? 'Pay when your order arrives.' : 'Demo option only. No payment is processed.'}</small></span></label>)}</div></fieldset><p className="checkout-wizard-disclaimer">E-wallet and bank account are not connected; no payment will be processed.</p></section>}
-          {step === 3 && <section className="checkout-wizard-panel checkout-review"><div className="checkout-review-address"><h2>Deliver to</h2><strong>{form.fullName} · {form.phone}</strong><p>{form.street}, {form.barangay}, {form.city}, {form.province} {form.postalCode}</p><button type="button" onClick={() => setStep(1)}>Edit address</button></div><div className="checkout-review-address"><h2>Payment</h2><strong>{form.payment}</strong><p>{form.delivery}</p><button type="button" onClick={() => setStep(2)}>Edit payment</button></div><div className="checkout-review-items"><h2>Items ({items.reduce((total, item) => total + item.quantity, 0)})</h2>{items.map((item) => <div key={item.id}><span>{item.name} × {item.quantity}</span><strong>{money(item.price * item.quantity)}</strong></div>)}</div><CartSummary items={items} checkout /></section>}
+          {step === 3 && <section className="checkout-wizard-panel checkout-review"><div className="checkout-review-address"><h2>Deliver to</h2><strong>{form.fullName} · {form.phone}</strong><p>{form.street}, {form.barangay}, {form.city}, {form.province} {form.postalCode}</p><button type="button" onClick={() => setStep(1)}>Edit address</button></div><div className="checkout-review-address"><h2>Payment</h2><strong>{form.payment}</strong><p>{form.delivery}</p><button type="button" onClick={() => setStep(2)}>Edit payment</button></div><div className="checkout-review-items"><h2>Items ({items.reduce((total, item) => total + item.quantity, 0)})</h2>{items.map((item) => <div key={cartItemKey(item)}><span>{item.name}{item.color && ` · ${item.color}`} × {item.quantity}</span><strong>{money(item.price * item.quantity)}</strong></div>)}</div><CartSummary items={items} checkout /></section>}
           {error && <p className="form-error" role="alert">{error}</p>}
           <footer className="checkout-wizard-footer">{step > 1 ? <button type="button" className="checkout-wizard-back" onClick={() => setStep((current) => current - 1)}><ArrowLeft size={16} /> Back</button> : <button type="button" className="checkout-wizard-back" onClick={close}>Cancel</button>}{step < 3 ? <button type="button" className="button button-orange checkout-wizard-continue" onClick={step === 1 ? continueToPayment : () => setStep(3)}>Continue</button> : <button className="button button-orange checkout-wizard-continue" type="submit" disabled={busy}><LockKeyhole size={16} />{busy ? 'Creating order…' : 'Place Demo Order'}</button>}</footer>
         </form>

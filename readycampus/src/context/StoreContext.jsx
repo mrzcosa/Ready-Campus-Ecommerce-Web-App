@@ -21,6 +21,7 @@ const loadProducts = () => {
   return [...merged, ...seedProducts.filter((product) => !savedIds.has(String(product.id)))]
 }
 const persist = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* storage may be disabled */ } }
+const cartEntryKey = (entry) => `${entry.id}::${entry.color || ''}`
 
 export function StoreProvider({ children }) {
   const [products, setProducts] = useState(loadProducts)
@@ -64,25 +65,28 @@ export function StoreProvider({ children }) {
   }, [user])
 
   const notify = useCallback((message, tone = 'success') => setToast({ id: Date.now(), message, tone }), [])
-  const addToCart = useCallback((id, quantity = 1) => {
+  const addToCart = useCallback((id, quantity = 1, color = null) => {
     const product = products.find((item) => String(item.id) === String(id))
     if (!product || product.stock < 1) { notify('This product is currently out of stock.', 'error'); return false }
-    const current = cart.find((item) => String(item.id) === String(id))?.quantity || 0
+    if (String(product.id) === '6' && !color) { notify('Choose a backpack color on the product page before adding it to your cart.', 'error'); return false }
+    const key = cartEntryKey({ id, color })
+    const current = cart.filter((item) => String(item.id) === String(id)).reduce((sum, item) => sum + item.quantity, 0)
     if (current + quantity > product.stock) { notify(`Only ${product.stock} available.`, 'error'); return false }
     setCart((items) => {
-      const existing = items.find((item) => String(item.id) === String(id))
-      return existing ? items.map((item) => String(item.id) === String(id) ? { ...item, quantity: item.quantity + quantity } : item) : [...items, { id: product.id, quantity }]
+      const existing = items.find((item) => cartEntryKey(item) === key)
+      return existing ? items.map((item) => cartEntryKey(item) === key ? { ...item, quantity: item.quantity + quantity } : item) : [...items, { id: product.id, quantity, ...(color ? { color } : {}) }]
     })
     notify(`${product.name} added to cart.`)
     return true
   }, [cart, notify, products])
-  const setCartQuantity = useCallback((id, quantity) => {
+  const setCartQuantity = useCallback((id, quantity, color = null) => {
     const product = products.find((item) => String(item.id) === String(id))
-    if (quantity <= 0) { setCart((items) => items.filter((item) => String(item.id) !== String(id))); return }
+    const key = cartEntryKey({ id, color })
+    if (quantity <= 0) { setCart((items) => items.filter((item) => cartEntryKey(item) !== key)); return }
     if (product && quantity > product.stock) { notify(`Only ${product.stock} available.`, 'error'); return }
-    setCart((items) => items.map((item) => String(item.id) === String(id) ? { ...item, quantity } : item))
+    setCart((items) => items.map((item) => cartEntryKey(item) === key ? { ...item, quantity } : item))
   }, [notify, products])
-  const removeFromCart = useCallback((id) => setCart((items) => items.filter((item) => String(item.id) !== String(id))), [])
+  const removeFromCart = useCallback((id, color = null) => { const key = cartEntryKey({ id, color }); setCart((items) => items.filter((item) => cartEntryKey(item) !== key)) }, [])
   const clearCart = useCallback(() => setCart([]), [])
   const toggleWishlist = useCallback((id) => {
     const product = products.find((item) => String(item.id) === String(id))
@@ -100,12 +104,12 @@ export function StoreProvider({ children }) {
   }, [notify])
   const signOut = useCallback(() => { setUser(null); notify('You have signed out.') }, [notify])
   const createOrder = useCallback(async (details, itemIds = null) => {
-    const selectedCart = itemIds !== null ? cart.filter((entry) => itemIds.some((id) => String(id) === String(entry.id))) : cart
+    const selectedCart = itemIds !== null ? cart.filter((entry) => itemIds.some((id) => String(id) === cartEntryKey(entry) || String(id) === String(entry.id))) : cart
     if (!selectedCart.length) throw new Error('Your cart is empty.')
     const items = selectedCart.map((entry) => {
       const product = products.find((item) => String(item.id) === String(entry.id))
       if (!product || entry.quantity > product.stock) throw new Error(`Please check the available stock for ${product?.name || 'an item'}.`)
-      return { ...product, quantity: entry.quantity }
+      return { ...product, quantity: entry.quantity, ...(entry.color ? { color: entry.color } : {}) }
     })
     const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0)
     const savings = items.reduce((sum, item) => sum + Math.max(0, item.oldPrice - item.price) * item.quantity, 0)
@@ -123,11 +127,11 @@ export function StoreProvider({ children }) {
       : { ...order, demoAutoProgress: true }
     setOrders((list) => [savedOrder, ...list])
     if (!result.connected) setProducts((list) => list.map((product) => {
-      const ordered = items.find((item) => String(item.id) === String(product.id))
-      return ordered ? { ...product, stock: Math.max(0, product.stock - ordered.quantity) } : product
+      const orderedQuantity = items.filter((item) => String(item.id) === String(product.id)).reduce((sum, item) => sum + item.quantity, 0)
+      return orderedQuantity ? { ...product, stock: Math.max(0, product.stock - orderedQuantity) } : product
     }))
-    const orderedIds = new Set(items.map((item) => String(item.id)))
-    setCart((current) => current.filter((entry) => !orderedIds.has(String(entry.id))))
+    const orderedIds = new Set(selectedCart.map(cartEntryKey))
+    setCart((current) => current.filter((entry) => !orderedIds.has(cartEntryKey(entry))))
     return savedOrder
   }, [cart, products])
   const updateOrderStatus = useCallback((reference, status) => setOrders((list) => list.map((order) => order.reference === reference ? { ...order, status, statusUpdatedAt: new Date().toISOString() } : order)), [])
